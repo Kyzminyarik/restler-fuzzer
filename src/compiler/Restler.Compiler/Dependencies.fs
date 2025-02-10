@@ -861,43 +861,42 @@ let getPayloadPrimitiveType (payload:FuzzingPayload) =
         PrimitiveType.String
 
 let getProducer (request:RequestId) (response:ResponseProperties) =
-
-    // All possible properties in this response
+        // All possible properties in this response
     let accessPaths = List<PropertyAccessPath>()
 
     let visitLeaf2 (parentAccessPath:string list) (p:LeafProperty) =
+
         let resourceAccessPath = PropertyAccessPaths.getLeafAccessPathParts parentAccessPath p
+
         let name =
             if System.String.IsNullOrWhiteSpace p.name then
                 match parentAccessPath |> List.tryFindBack (fun elem -> not (String.IsNullOrWhiteSpace elem || elem.StartsWith("["))) with
-                | None ->
-                    // This case occurs if the response returns a single unnamed value.
-                    // RESTler does not currently infer a producer for such cases.
-#if DEBUG
-    // Disable this warning in release - it is noisy and the parent access path is always empty.  This
-    // needs to be further investigated.
-                    printfn "WARNING: unnamed property found in response %s, request: %A.  Producer not inferred."
-                                (parentAccessPath |> String.concat ",")
-                                request
-#endif
-                    None
-                | Some propertyName ->
-                    Some propertyName
-            else Some p.name
+                | None -> None
+                | Some propertyName -> Some propertyName
+            else
+                Some p.name
 
         let accessPath = resourceAccessPath |> List.toArray
-        if name.IsSome then
-            accessPaths.Add( { Name = name.Value
-                               Path = { path = accessPath }
-                               Type = getPayloadPrimitiveType p.payload })
-        // Check if the item is an array.  If so, both the array item and
-        // the array itself should be producers.
-        // TODO: support cases where the entire response is an array
-        if accessPath.Length > 1 && accessPath |> Array.last = "[0]" then
-            accessPaths.Add( { Name = name.Value
-                               Path = { path = accessPath.[0..accessPath.Length-2] }
-                               Type = getPayloadPrimitiveType p.payload })
 
+        if name.IsSome then
+            let path = { path = accessPath }
+            let typeValue = getPayloadPrimitiveType p.payload
+            try
+                accessPaths.Add( { Name = name.Value
+                                   Path = path
+                                   Type = typeValue })
+                logTimingInfo (sprintf "No exception")
+            with
+            |ex -> logTimingInfo (sprintf "Ignored exception: %s" ex.Message)
+
+        if accessPath.Length > 1 && accessPath |> Array.last = "[0]" then
+            try
+                accessPaths.Add( { Name = name.Value
+                                   Path = { path = accessPath.[0..accessPath.Length-2] }
+                                   Type = getPayloadPrimitiveType p.payload })
+                logTimingInfo (sprintf "No exception")
+            with
+            |ex -> logTimingInfo (sprintf "Ignored exception: %s" ex.Message)
 
     let visitInner2 (parentAccessPath:string list) (p:InnerProperty) =
         ()
